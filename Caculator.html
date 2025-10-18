@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Máy tính Windows 11 - Chuẩn</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="Caculator.css">
+</head>
+<body>
+    <div class="calculator-container">
+        <div class="calculator">
+            <div class="title-bar">
+                <button class="menu-btn">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <div class="calculator-type">Chuẩn</div>
+                <button class="history-toggle" id="historyToggle">
+                    <i class="fas fa-history"></i>
+                </button>
+            </div>
+            
+            <div class="display">
+                <div class="previous-operand"></div>
+                <div class="current-operand">0</div>
+            </div>
+            
+            <div class="buttons-grid">
+                <!-- Hàng 1 -->
+                <button class="btn btn-clear math-func" data-action="percent">%</button>
+                <button class="btn btn-clear" data-action="clear-entry">CE</button>
+                <button class="btn btn-clear" data-action="clear-all">C</button>
+                <button class="btn btn-clear" data-action="backspace">
+                    <i class="fas fa-backspace"></i>
+                </button>
+                
+                <!-- Hàng 2 -->
+                <button class="btn btn-operation math-func" data-operation="sqrt">√<span style="text-decoration: overline">x</span></button>
+                <button class="btn btn-operation math-func" data-operation="square">x²</button>
+                <button class="btn btn-operation math-func" data-operation="reciprocal">¹⁄<span style="text-decoration: overline">x</span></button>
+                <button class="btn btn-operation" data-operation="÷">÷</button>
+                
+                <!-- Hàng 3 -->
+                <button class="btn btn-number" data-number="7">7</button>
+                <button class="btn btn-number" data-number="8">8</button>
+                <button class="btn btn-number" data-number="9">9</button>
+                <button class="btn btn-operation" data-operation="×">×</button>
+                
+                <!-- Hàng 4 -->
+                <button class="btn btn-number" data-number="4">4</button>
+                <button class="btn btn-number" data-number="5">5</button>
+                <button class="btn btn-number" data-number="6">6</button>
+                <button class="btn btn-operation" data-operation="-">–</button>
+                
+                <!-- Hàng 5 -->
+                <button class="btn btn-number" data-number="1">1</button>
+                <button class="btn btn-number" data-number="2">2</button>
+                <button class="btn btn-number" data-number="3">3</button>
+                <button class="btn btn-operation" data-operation="+">+</button>
+                
+                <!-- Hàng 6 -->
+                <button class="btn btn-number math-func" data-action="toggle-sign">±</button>
+                <button class="btn btn-number" data-number="0">0</button>
+                <button class="btn btn-number" data-number=".">.</button>
+                <button class="btn btn-equals" data-action="calculate">=</button>
+            </div>
+        </div>
+        
+        <div class="history-panel" id="historyPanel">
+            <div class="history-header">
+                <span>Lịch sử</span>
+                <button class="clear-history" id="clearHistory">Xóa lịch sử</button>
+            </div>
+            <div class="history-content" id="historyContent">
+                <div class="no-history">Chưa có phép tính nào</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class Calculator {
+            constructor() {
+                this.previousOperandElement = document.querySelector('.previous-operand');
+                this.currentOperandElement = document.querySelector('.current-operand');
+                this.historyContent = document.getElementById('historyContent');
+                this.history = JSON.parse(localStorage.getItem('calculatorHistory')) || [];
+                this.clear();
+                this.justCalculated = false; // flag to detect recent calculation
+                this.lastExpression = '';
+                this.loadedFromHistory = false;
+                this.showLastExpression = false;
+                this.updateDisplay();
+                this.renderHistory();
+            }
+
+            clear() {
+                this.currentOperand = '0';
+                this.previousOperand = '';
+                this.operation = undefined;
+                this.waitingForNewOperand = false;
+                this.justCalculated = false;
+                this.lastExpression = '';
+                this.loadedFromHistory = false;
+                this.showLastExpression = false;
+            }
+
+            clearEntry() {
+                this.currentOperand = '0';
+                this.justCalculated = false;
+            }
+
+            delete() {
+                // If the last action was a completed calculation, backspace should remove that calculation from history
+                if (this.justCalculated) {
+                    // remove most recent history item if it matches the displayed calculation
+                    if (this.history.length > 0) {
+                        const top = this.history[0];
+                        // compare result or expression to identify
+                        if (top.result === this.currentOperand || top.expression === this.lastExpression) {
+                            this.history.shift();
+                            localStorage.setItem('calculatorHistory', JSON.stringify(this.history));
+                            this.renderHistory();
+                        }
+                    }
+                    // clear the result and previous expression
+                    this.currentOperand = '0';
+                    this.lastExpression = '';
+                    this.showLastExpression = false;
+                    this.justCalculated = false;
+                    return;
+                }
+
+                if (this.currentOperand.length === 1) {
+                    this.currentOperand = '0';
+                } else {
+                    this.currentOperand = this.currentOperand.slice(0, -1);
+                }
+            }
+
+            appendNumber(number = '') {
+                 // If user just loaded a history item, start a new current operand but keep previousOperand and operation
+                 if (this.loadedFromHistory) {
+                     this.currentOperand = number;
+                     this.loadedFromHistory = false;
+                     // do not show the saved full expression once user starts typing after operator
+                     this.showLastExpression = false;
+                     this.waitingForNewOperand = false;
+                     return;
+                 }
+                // If the last action was a completed calculation, start a new entry when a number is pressed
+                if (this.justCalculated) {
+                    // clear previous expression when starting a fresh input
+                    this.previousOperand = '';
+                    this.lastExpression = '';
+                    this.currentOperand = number;
+                    this.justCalculated = false;
+                    this.waitingForNewOperand = false;
+                    return;
+                }
+
+                if (this.waitingForNewOperand) {
+                    this.currentOperand = number;
+                    this.waitingForNewOperand = false;
+                } else {
+                    if (number === '.' && this.currentOperand.includes('.')) return;
+                    if (this.currentOperand === '0' && number !== '.') {
+                        this.currentOperand = number;
+                    } else {
+                        this.currentOperand += number;
+                    }
+                }
+            }
+
+            chooseOperation(operation) {
+                 // If there is no current input, ignore
+                 if (this.currentOperand === '') return;
+ 
+                 // when user picks an operator, stop showing the saved history expression
+                 this.showLastExpression = false;
+                 // if a history item was loaded, consume it: operator should apply to the displayed result, not to the saved expression
+                 this.loadedFromHistory = false;
+                 // clear the saved expression so UI won't fall back to showing it
+                 this.lastExpression = '';
+ 
+                 // If an operator is already selected and the user hasn't typed a new operand yet,
+                 // just update to the new operator (don't calculate)
+                 if (this.operation != null && this.waitingForNewOperand) {
+                     this.operation = operation;
+                     this.updateDisplay();
+                     return;
+                 }
+ 
+                 // If there's a previous operand and the user has entered a new current operand, perform the pending calculation
+                 if (this.previousOperand !== '' && !this.waitingForNewOperand) {
+                     this.calculate();
+                 }
+ 
+                 // Set up new operation
+                 this.justCalculated = false;
+                 this.operation = operation;
+                 this.previousOperand = this.currentOperand;
+                 this.waitingForNewOperand = true;
+             }
+
+            calculate() {
+                let computation;
+                const prev = parseFloat(this.previousOperand);
+                const current = parseFloat(this.currentOperand);
+                if (isNaN(prev) || isNaN(current)) return;
+
+                let operationSymbol = this.operation;
+                switch (this.operation) {
+                    case '+':
+                        computation = prev + current;
+                        break;
+                    case '-':
+                        computation = prev - current;
+                        break;
+                    case '×':
+                        computation = prev * current;
+                        break;
+                    case '÷':
+                        if (current === 0) {
+                            alert('Không thể chia cho 0');
+                            return;
+                        }
+                        computation = prev / current;
+                        break;
+                    default:
+                        return;
+                }
+
+                // Lưu vào lịch sử
+                const historyItem = {
+                    expression: `${this.previousOperand} ${operationSymbol} ${this.currentOperand}`,
+                    result: computation.toString()
+                };
+
+                this.history.unshift(historyItem);
+                if (this.history.length > 10) {
+                    this.history = this.history.slice(0, 10);
+                }
+
+                localStorage.setItem('calculatorHistory', JSON.stringify(this.history));
+                this.renderHistory();
+
+                // keep the full expression visible above the result to avoid layout jump
+                this.lastExpression = `${this.previousOperand} ${operationSymbol} ${this.currentOperand}`;
+                this.currentOperand = computation.toString();
+                this.operation = undefined;
+                this.waitingForNewOperand = true;
+                // mark that a full calculation just finished
+                this.justCalculated = true;
+                this.showLastExpression = false;
+            }
+
+            toggleSign() {
+                if (this.currentOperand !== '0') {
+                    this.currentOperand = (parseFloat(this.currentOperand) * -1).toString();
+                }
+            }
+
+            calculatePercentage() {
+                const num = parseFloat(this.currentOperand);
+                if (isNaN(num)) return;
+                const result = num / 100;
+
+                // Lưu vào lịch sử
+                const historyItem = {
+                    expression: `(${this.currentOperand})%`,
+                    result: result.toString()
+                };
+
+                this.history.unshift(historyItem);
+                if (this.history.length > 10) {
+                    this.history = this.history.slice(0, 10);
+                }
+                localStorage.setItem('calculatorHistory', JSON.stringify(this.history));
+                this.renderHistory();
+
+                // show percent expression above result
+                this.lastExpression = historyItem.expression;
+                this.showLastExpression = true;
+                this.currentOperand = result.toString();
+                this.justCalculated = true;
+                this.loadedFromHistory = false;
+                this.updateDisplay();
+             }
+
+            calculateSquare() {
+                // allow squaring any numeric currentOperand (including 0)
+                const num = parseFloat(this.currentOperand);
+                if (isNaN(num)) return;
+                const result = num * num;
+
+                // Lưu vào lịch sử
+                const historyItem = {
+                    expression: `sqr(${this.currentOperand})`,
+                    result: result.toString()
+                };
+
+                this.history.unshift(historyItem);
+                if (this.history.length > 10) {
+                    this.history = this.history.slice(0, 10);
+                }
+
+                localStorage.setItem('calculatorHistory', JSON.stringify(this.history));
+                this.renderHistory();
+
+                // show the square expression as `sqr(n)` above the result
+                this.lastExpression = historyItem.expression;
+                this.showLastExpression = true;
+                this.currentOperand = result.toString();
+                this.justCalculated = true;
+                this.loadedFromHistory = false;
+                this.updateDisplay();
+            }
+
+            calculateSquareRoot() {
+                const num = parseFloat(this.currentOperand);
+                if (isNaN(num)) return;
+                if (num < 0) {
+                    alert('Không thể tính căn bậc hai của số âm');
+                    return;
+                }
+                const result = Math.sqrt(num);
+
+                // Lưu vào lịch sử
+                const historyItem = {
+                    expression: `√(${this.currentOperand})`,
+                    result: result.toString()
+                };
+
+                this.history.unshift(historyItem);
+                if (this.history.length > 10) {
+                    this.history = this.history.slice(0, 10);
+                }
+
+                localStorage.setItem('calculatorHistory', JSON.stringify(this.history));
+                this.renderHistory();
+
+                // show sqrt expression above result
+                this.lastExpression = historyItem.expression;
+                this.showLastExpression = true;
+                this.currentOperand = result.toString();
+                this.justCalculated = true;
+                this.loadedFromHistory = false;
+                this.updateDisplay();
+             }
+
+            calculateReciprocal() {
+                const num = parseFloat(this.currentOperand);
+                if (isNaN(num)) return;
+                if (num === 0) {
+                    alert('Không thể tính nghịch đảo của 0');
+                    return;
+                }
+                const result = 1 / num;
+
+                // Lưu vào lịch sử
+                const historyItem = {
+                    expression: `1/(${this.currentOperand})`,
+                    result: result.toString()
+                };
+
+                this.history.unshift(historyItem);
+                if (this.history.length > 10) {
+                    this.history = this.history.slice(0, 10);
+                }
+
+                localStorage.setItem('calculatorHistory', JSON.stringify(this.history));
+                this.renderHistory();
+
+                // show reciprocal expression above result
+                this.lastExpression = historyItem.expression;
+                this.showLastExpression = true;
+                this.currentOperand = result.toString();
+                this.justCalculated = true;
+                this.loadedFromHistory = false;
+                this.updateDisplay();
+             }
+
+            clearHistory() {
+                this.history = [];
+                localStorage.removeItem('calculatorHistory');
+                this.renderHistory();
+            }
+
+            renderHistory() {
+                 if (this.history.length === 0) {
+                     this.historyContent.innerHTML = '<div class="no-history">Chưa có phép tính nào</div>';
+                     return;
+                 }
+ 
+                this.historyContent.innerHTML = this.history.map((item, index) => `
+                    <div class="history-item" data-index="${index}">
+                        <div class="history-expression">${item.expression} =</div>
+                        <div class="history-result">${item.result}</div>
+                    </div>
+                `).join('');
+ 
+                 // Thêm sự kiện click cho các mục lịch sử
+                 this.historyContent.querySelectorAll('.history-item').forEach(item => {
+                     item.addEventListener('click', (e) => {
+                     // prevent the click from bubbling to document (which might close the panel)
+                     e.stopPropagation();
+                     const index = parseInt(item.dataset.index);
+                     const historyItem = this.history[index];
+                     // load result into current operand without altering the history item's text
+                        // Show saved expression on the previous line (e.g. "5 + 3")
+                        // include '=' when showing a clicked history expression
+                        this.lastExpression = (historyItem.expression ? `${historyItem.expression} =` : '');
+                         // clear any stale previousOperand/operation so new operator applies to the shown result
+                         this.previousOperand = '';
+                         this.operation = undefined;
+                         this.showLastExpression = true;
+                          // Show saved result as current operand (e.g. "8")
+                          this.currentOperand = historyItem.result;
+                          this.justCalculated = false;
+                          // mark that a history item was loaded; next number press should start new current operand
+                          this.loadedFromHistory = true;
+                          this.updateDisplay();
+
+                         // on small screens, close the history overlay after selection
+                         try {
+                             if (window.matchMedia('(max-width: 899px)').matches && typeof closeHistory === 'function') {
+                                 closeHistory();
+                             }
+                         } catch (err) {
+                             // ignore
+                         }
+                     });
+                 });
+            }
+
+            getDisplayNumber(number) {
+                if (number === '') return '';
+                const stringNumber = number.toString();
+                const parts = stringNumber.split('.');
+                const integerDigits = parseFloat(parts[0]);
+                const decimalDigits = parts[1];
+                let integerDisplay;
+                if (isNaN(integerDigits)) {
+                    integerDisplay = '';
+                } else {
+                    integerDisplay = integerDigits.toLocaleString('en-US', {
+                        maximumFractionDigits: 0
+                    });
+                }
+                if (decimalDigits != null) {
+                    return `${integerDisplay}.${decimalDigits}`;
+                } else {
+                    return integerDisplay;
+                }
+            }
+
+            updateDisplay() {
+                this.currentOperandElement.innerText = this.getDisplayNumber(this.currentOperand);
+                // If we should show the full saved expression+result (e.g. after loading history), prefer that
+                if (this.showLastExpression && this.lastExpression && this.lastExpression !== '') {
+                    this.previousOperandElement.innerText = this.lastExpression;
+                    return;
+                }
+ 
+                 // Otherwise, if there's an active operation, show previous number plus operator
+                 if (this.operation != null && this.previousOperand !== '') {
+                     this.previousOperandElement.innerText = `${this.getDisplayNumber(this.previousOperand)} ${this.operation}`;
+                     return;
+                 }
+ 
+                 // Fallback: show lastExpression if present
+                 if (this.lastExpression && this.lastExpression !== '') {
+                     // If the last action was a completed calculation, append '=' to indicate result
+                     if (this.justCalculated) {
+                        this.previousOperandElement.innerText = `${this.lastExpression} =`;
+                     } else {
+                        this.previousOperandElement.innerText = this.lastExpression;
+                     }
+                 } else {
+                     this.previousOperandElement.innerText = '';
+                 }
+             }
+        }
+
+        // Khởi tạo máy tính
+        const calculator = new Calculator();
+
+        // Xử lý sự kiện click cho các nút
+        const buttons = document.querySelectorAll('.btn');
+        console.log('Calculator: buttons found =', buttons.length);
+        buttons.forEach(button => {
+            console.log('Attaching listener to button', button.innerText || button.dataset.operation || button.dataset.action);
+            button.addEventListener('click', (e) => {
+                try {
+                    if (button.dataset.number) {
+                        if (button.dataset.number === '±') {
+                            calculator.toggleSign();
+                        } else {
+                            calculator.appendNumber(button.dataset.number);
+                        }
+                    } else if (button.dataset.operation) {
+                        const op = button.dataset.operation;
+                        // Handle unary operations directly so they don't act as binary operations
+                        if (op === 'square') {
+                            calculator.calculateSquare();
+                        } else if (op === 'sqrt') {
+                            calculator.calculateSquareRoot();
+                        } else if (op === 'reciprocal') {
+                            calculator.calculateReciprocal();
+                        } else {
+                            calculator.chooseOperation(op);
+                        }
+                    } else if (button.dataset.action) {
+                        if (button.dataset.action === 'calculate') {
+                            calculator.calculate();
+                        } else if (button.dataset.action === 'clear-entry') {
+                            calculator.clearEntry();
+                        } else if (button.dataset.action === 'clear-all') {
+                            calculator.clear();
+                        } else if (button.dataset.action === 'backspace') {
+                            calculator.delete();
+                        } else if (button.dataset.action === 'percent') {
+                            calculator.calculatePercentage();
+                        } else if (button.dataset.action === 'toggle-sign') {
+                            calculator.toggleSign();
+                        }
+                    }
+ 
+                    calculator.updateDisplay();
+                } catch (err) {
+                    console.error('Calculator button handler error', err);
+                    alert('Error: ' + (err && err.message));
+                }
+            });
+        });
+
+        // Xử lý sự kiện bàn phím
+        document.addEventListener('keydown', event => {
+            if (event.key >= '0' && event.key <= '9') {
+                calculator.appendNumber(event.key);
+            } else if (event.key === '.' || event.key === ',') {
+                // accept both keys but use dot as decimal separator
+                calculator.appendNumber('.');
+            } else if (event.key === '+' || event.key === '-' || event.key === '*' || event.key === '/') {
+                let operation;
+                switch (event.key) {
+                    case '+': operation = '+'; break;
+                    case '-': operation = '-'; break;
+                    case '*': operation = '×'; break;
+                    case '/': operation = '÷'; break;
+                }
+                calculator.chooseOperation(operation);
+            } else if (event.key === 'Enter' || event.key === '=') {
+                calculator.calculate();
+            } else if (event.key === 'Escape') {
+                calculator.clear();
+            } else if (event.key === 'Backspace') {
+                calculator.delete();
+            }
+            calculator.updateDisplay();
+        });
+
+        // Xử lý hiển thị/ẩn lịch sử
+        const historyToggle = document.getElementById('historyToggle');
+        const historyPanel = document.getElementById('historyPanel');
+        const clearHistoryBtn = document.getElementById('clearHistory');
+
+        function closeHistory() {
+            historyPanel.classList.remove('open');
+            historyToggle.classList.remove('active');
+        }
+
+        function openHistory() {
+            historyPanel.classList.add('open');
+            historyToggle.classList.add('active');
+        }
+
+        historyToggle.addEventListener('click', (e) => {
+            // Prevent the document click handler from immediately closing the panel
+            e.stopPropagation();
+            e.preventDefault();
+            if (historyPanel.classList.contains('open')) {
+                closeHistory();
+                historyToggle.setAttribute('aria-expanded', 'false');
+            } else {
+                openHistory();
+                historyToggle.setAttribute('aria-expanded', 'true');
+            }
+        });
+
+        clearHistoryBtn.addEventListener('click', () => {
+            calculator.clearHistory();
+        });
+
+        // Close history when clicking outside on small screens
+        document.addEventListener('click', (e) => {
+            if (!window.matchMedia) return;
+            if (window.matchMedia('(max-width: 899px)').matches) {
+                if (!historyPanel.classList.contains('open')) return;
+                // don't close when clicking inside the panel or on the toggle
+                const isClickInside = historyPanel.contains(e.target) || historyToggle.contains(e.target);
+                if (!isClickInside) closeHistory();
+            }
+        });
+
+        // Ensure the panel is closed on initial load for small screens
+        if (window.matchMedia('(max-width: 899px)').matches) {
+            closeHistory();
+        }
+    </script>
+</body>
+</html>
