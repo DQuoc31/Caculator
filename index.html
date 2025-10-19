@@ -262,8 +262,47 @@
             }
 
             calculatePercentage() {
-                const num = parseFloat(this.currentOperand);
-                if (isNaN(num)) return;
+                 // Debug: log state to console
+                 try {
+                     console.log('calculatePercentage called', {
+                         previousOperand: this.previousOperand,
+                         operation: this.operation,
+                         currentOperand: this.currentOperand,
+                         showLastExpression: this.showLastExpression,
+                         loadedFromHistory: this.loadedFromHistory,
+                         justCalculated: this.justCalculated
+                     });
+                 } catch (e) {}
+ 
+                 // robust parsing: strip grouping commas before parse
+                 const curStr = (this.currentOperand || '').toString().replace(/,/g, '');
+                 const num = parseFloat(curStr);
+                 if (isNaN(num)) return;
+ 
+                 // If there's a pending binary operation, treat current as percentage of previousOperand
+                if (this.previousOperand !== '' && this.operation != null) {
+                    const prevStr = (this.previousOperand || '').toString().replace(/,/g, '');
+                    const base = parseFloat(prevStr);
+                    if (!isNaN(base)) {
+                        let percentValue;
+                        // For addition/subtraction percent is calculated from base (e.g. base + base*percent)
+                        if (this.operation === '+' || this.operation === '-') {
+                            percentValue = (base * num / 100);
+                        } else {
+                            // For multiplication/division treat percent as fraction (e.g. 20% -> 0.2)
+                            percentValue = (num / 100);
+                        }
+                        // show previous as e.g. "200 + 20% =" and current as computed percent (40 or 0.2)
+                        this.lastExpression = `${this.previousOperand} ${this.operation} ${num}% =`;
+                        this.showLastExpression = true;
+                        this.currentOperand = percentValue.toString();
+                        this.loadedFromHistory = false;
+                        this.updateDisplay();
+                        return;
+                    }
+                }
+ 
+                // fallback: treat as unary percent
                 const result = num / 100;
 
                 // Lưu vào lịch sử
