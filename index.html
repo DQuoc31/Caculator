@@ -111,18 +111,12 @@
             }
 
             delete() {
-                // If the last action was a completed calculation, backspace should remove that calculation from history
+                // If a history item has been loaded into the display, disable backspace until user types or changes state
+                if (this.loadedFromHistory) {
+                    return;
+                }
+                 // If the last action was a completed calculation, backspace should remove that calculation from history
                 if (this.justCalculated) {
-                    // remove most recent history item if it matches the displayed calculation
-                    if (this.history.length > 0) {
-                        const top = this.history[0];
-                        // compare result or expression to identify
-                        if (top.result === this.currentOperand || top.expression === this.lastExpression) {
-                            this.history.shift();
-                            localStorage.setItem('calculatorHistory', JSON.stringify(this.history));
-                            this.renderHistory();
-                        }
-                    }
                     // clear the result and previous expression
                     this.currentOperand = '0';
                     this.lastExpression = '';
@@ -130,7 +124,7 @@
                     this.justCalculated = false;
                     return;
                 }
-
+ 
                 if (this.currentOperand.length === 1) {
                     this.currentOperand = '0';
                 } else {
@@ -176,6 +170,14 @@
                  // If there is no current input, ignore
                  if (this.currentOperand === '') return;
  
+                // Prevent choosing an operator when currentOperand is a non-numeric warning/error message
+                // e.g. after errors like 'Không thể chia cho 0'
+                const curClean = (this.currentOperand || '').toString().replace(/,/g, '');
+                const curNum = parseFloat(curClean);
+                if (isNaN(curNum)) {
+                    return;
+                }
+
                  // when user picks an operator, stop showing the saved history expression
                  this.showLastExpression = false;
                  // if a history item was loaded, consume it: operator should apply to the displayed result, not to the saved expression
@@ -222,7 +224,12 @@
                         break;
                     case '÷':
                         if (current === 0) {
-                            alert('Không thể chia cho 0');
+                            // show error on display instead of alert
+                            this.lastExpression = `${this.previousOperand} ÷ ${this.currentOperand}`;
+                            this.showLastExpression = false;
+                            this.currentOperand = 'Không thể chia cho 0';
+                            this.justCalculated = true;
+                            this.updateDisplay();
                             return;
                         }
                         computation = prev / current;
@@ -360,7 +367,12 @@
                 const num = parseFloat(this.currentOperand);
                 if (isNaN(num)) return;
                 if (num < 0) {
-                    alert('Không thể tính căn bậc hai của số âm');
+                    // show error on display instead of alert
+                    this.lastExpression = `√(${this.currentOperand})`;
+                    this.showLastExpression = false;
+                    this.currentOperand = 'Không thể căn bậc hai số âm';
+                    this.justCalculated = true;
+                    this.updateDisplay();
                     return;
                 }
                 const result = Math.sqrt(num);
@@ -392,7 +404,12 @@
                 const num = parseFloat(this.currentOperand);
                 if (isNaN(num)) return;
                 if (num === 0) {
-                    alert('Không thể tính nghịch đảo của 0');
+                    // show error on display instead of alert
+                    this.lastExpression = `1/(${this.currentOperand})`;
+                    this.showLastExpression = false;
+                    this.currentOperand = 'Không thể lấy nghịch đảo 0';
+                    this.justCalculated = true;
+                    this.updateDisplay();
                     return;
                 }
                 const result = 1 / num;
@@ -474,7 +491,12 @@
             }
 
             getDisplayNumber(number) {
-                if (number === '') return '';
+                if (number === '' || number == null) return '';
+                // If number is not a numeric value, return it as-is (used for error messages)
+                const asNumber = Number(number.toString().replace(/,/g, ''));
+                if (isNaN(asNumber)) {
+                    return number.toString();
+                }
                 const stringNumber = number.toString();
                 const parts = stringNumber.split('.');
                 const integerDigits = parseFloat(parts[0]);
