@@ -15,6 +15,7 @@
                 <button class="menu-btn">
                     <i class="fas fa-bars"></i>
                 </button>
+                <div class="memory-indicator" id="memoryIndicator" aria-hidden="true" style="margin-right:8px; font-weight:600; color:#0078d7"></div>
                 <div class="calculator-type">Chuẩn</div>
                 <button class="history-toggle" id="historyToggle">
                     <i class="fas fa-history"></i>
@@ -26,6 +27,15 @@
                 <div class="current-operand">0</div>
             </div>
             
+            <!-- Memory row: five buttons across the top -->
+            <div class="memory-row">
+                <button class="btn btn-clear math-func" data-action="memory-clear">MC</button>
+                <button class="btn btn-clear math-func" data-action="memory-recall">MR</button>
+                <button class="btn btn-clear math-func" data-action="memory-store">MS</button>
+                <button class="btn btn-clear math-func" data-action="memory-add">M+</button>
+                <button class="btn btn-clear math-func" data-action="memory-subtract">M-</button>
+            </div>
+
             <div class="buttons-grid">
                 <!-- Hàng 1 -->
                 <button class="btn btn-clear math-func" data-action="percent">%</button>
@@ -69,11 +79,14 @@
         
         <div class="history-panel" id="historyPanel">
             <div class="history-header">
-                <span>Lịch sử</span>
-                <button class="clear-history" id="clearHistory">Xóa lịch sử</button>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <button class="tab-btn" id="historyTab" style="font-weight:600;">Lịch sử</button>
+                    <button class="tab-btn" id="memoryTab">Bộ nhớ</button>
+                </div>
+                <button class="clear-history" id="clearPanel">Xóa</button>
             </div>
-            <div class="history-content" id="historyContent">
-                <div class="no-history">Chưa có phép tính nào</div>
+            <div class="history-content" id="panelContent">
+                <div class="no-history">Chưa có mục nào</div>
             </div>
         </div>
     </div>
@@ -83,7 +96,7 @@
             constructor() {
                 this.previousOperandElement = document.querySelector('.previous-operand');
                 this.currentOperandElement = document.querySelector('.current-operand');
-                this.historyContent = document.getElementById('historyContent');
+                this.historyContent = null;
                 this.history = JSON.parse(localStorage.getItem('calculatorHistory')) || [];
                 this.clear();
                 this.justCalculated = false; // flag to detect recent calculation
@@ -93,8 +106,21 @@
                 this.pendingHistory = null; // store unary result until user confirms with '='
                 this.leftUnaryText = '';
                 this.leftUnaryActive = false;
+                this.memoryValue = parseFloat(localStorage.getItem('calculatorMemory')) || 0;
+                this.panelContent = document.getElementById('panelContent');
+                if (!this.historyContent) this.historyContent = this.panelContent;
+                this.historyTab = document.getElementById('historyTab');
+                this.memoryTab = document.getElementById('memoryTab');
+                this.clearPanelBtn = document.getElementById('clearPanel');
+                // wire tab events
+                if (this.historyTab) this.historyTab.addEventListener('click', () => { this.activePanel = 'history'; this.renderPanel(); });
+                if (this.memoryTab) this.memoryTab.addEventListener('click', () => { this.activePanel = 'memory'; this.renderPanel(); });
+                if (this.clearPanelBtn) this.clearPanelBtn.addEventListener('click', () => { this.clearActivePanel(); });
                 this.updateDisplay();
-                this.renderHistory();
+                this.updateMemoryIndicator();
+                this.activePanel = 'history'; // 'history' or 'memory'
+                this.memoryList = JSON.parse(localStorage.getItem('calculatorMemoryList')) || [];
+                this.renderPanel();
             }
 
             clear() {
@@ -114,6 +140,93 @@
             clearEntry() {
                 this.currentOperand = '0';
                 this.justCalculated = false;
+            }
+
+            // Memory functions (MC, MR, MS, M+, M-)
+            memoryClear() {
+                this.memoryValue = 0;
+                localStorage.setItem('calculatorMemory', this.memoryValue.toString());
+                this.memoryList = [];
+                localStorage.removeItem('calculatorMemoryList');
+                this.renderPanel();
+                this.updateMemoryIndicator();
+            }
+
+            memoryRecall() {
+                // recall memory into current operand
+                this.currentOperand = this.memoryValue.toString();
+                this.justCalculated = false;
+                this.loadedFromHistory = false;
+                this.updateDisplay();
+            }
+
+            memoryStore() {
+                const num = parseFloat((this.currentOperand || '').toString().replace(/,/g, ''));
+                if (isNaN(num)) return;
+                this.memoryValue = num;
+                localStorage.setItem('calculatorMemory', this.memoryValue.toString());
+                this.updateMemoryIndicator();
+                // also add to memory list for panel visibility
+                this.addMemoryToList('MS', this.memoryValue);
+            }
+
+            memoryAdd() {
+                let num = parseFloat((this.currentOperand || '').toString().replace(/,/g, ''));
+                if (isNaN(num)) {
+                    try {
+                        const displayed = this.currentOperandElement ? this.currentOperandElement.innerText : '';
+                        num = parseFloat((displayed || '').toString().replace(/,/g, ''));
+                    } catch (err) {
+                        num = NaN;
+                    }
+                }
+                if (isNaN(num)) {
+                    console.debug('memoryAdd: cannot parse current operand', this.currentOperand);
+                    return;
+                }
+
+                const before = parseFloat(this.memoryValue) || 0;
+                this.memoryValue = before + num;
+                localStorage.setItem('calculatorMemory', this.memoryValue.toString());
+                // Add an entry to the memory list so users can see the change in the panel
+                this.addMemoryToList('M+', this.memoryValue);
+                this.updateMemoryIndicator();
+            }
+
+            memorySubtract() {
+                let num = parseFloat((this.currentOperand || '').toString().replace(/,/g, ''));
+                if (isNaN(num)) {
+                    try {
+                        const displayed = this.currentOperandElement ? this.currentOperandElement.innerText : '';
+                        num = parseFloat((displayed || '').toString().replace(/,/g, ''));
+                    } catch (err) {
+                        num = NaN;
+                    }
+                }
+                if (isNaN(num)) {
+                    console.debug('memorySubtract: cannot parse current operand', this.currentOperand);
+                    return;
+                }
+
+                const before = parseFloat(this.memoryValue) || 0;
+                this.memoryValue = before - num;
+                localStorage.setItem('calculatorMemory', this.memoryValue.toString());
+                this.addMemoryToList('M-', this.memoryValue);
+                this.updateMemoryIndicator();
+            }
+
+            updateMemoryIndicator() {
+                try {
+                    const el = document.getElementById('memoryIndicator');
+                    if (!el) return;
+                    if (this.memoryValue && !isNaN(this.memoryValue) && this.memoryValue !== 0) {
+                        el.innerText = 'M';
+                        el.style.opacity = '1';
+                    } else {
+                        el.innerText = '';
+                        el.style.opacity = '0.2';
+                    }
+                } catch (e) { }
             }
 
             delete() {
@@ -162,8 +275,6 @@
                 }
 
                 if (this.showLastExpression && this.previousOperand !== '' && this.operation != null) {
-                    // If this showLastExpression is from a left-side unary (e.g. 'sqr(5) +'),
-                    // append the typed number to the right-hand side in the visual expression.
                     if (this.leftUnaryActive && this.leftUnaryText && this.lastExpression.startsWith(this.leftUnaryText)) {
                         // start new current operand based on input (handle decimal)
                         if (number === '.') {
@@ -223,10 +334,6 @@
 
                 //Thay đổi phép toán
                 if (this.operation != null && this.waitingForNewOperand) {
-                    // If a unary-preview (like sqr(...) or √(...)) is shown for the current operand
-                    // as part of a pending binary expression, and the user switches operators,
-                    // compute the pending binary result now (without adding a history entry)
-                    // and use that as the new previousOperand so the display becomes e.g. "300 -".
                     if (this.showLastExpression && this.previousOperand !== '' && this.currentOperand !== '') {
                         const prevNum = parseFloat(this.previousOperand);
                         const curNum = parseFloat(this.currentOperand);
@@ -249,8 +356,6 @@
                                 default:
                                     interim = prevNum;
                             }
-                            // Set the computed value as the previous operand and update operator
-                            // Commit the textual expression (if present) to history before moving on.
                             if (this.lastExpression && this.lastExpression.trim() !== '') {
                                 const exprText = this.lastExpression.replace(/\s*=$/, '');
                                 const historyItem = { expression: exprText, result: interim.toString() };
@@ -297,14 +402,10 @@
                 // Set up new operation
                 this.justCalculated = false;
                 this.operation = operation;
-                // If the left side was a unary expression (e.g. sqr(5)), keep its text form
-                // in the previous line while storing the numeric value as previousOperand.
                 if (this.leftUnaryActive && this.leftUnaryText) {
-                    this.previousOperand = this.currentOperand; // numeric value
-                    // show textual unary on the previous line with new operator (e.g. 'sqr(5) +')
+                    this.previousOperand = this.currentOperand; 
                     this.lastExpression = `${this.leftUnaryText} ${operation}`;
                     this.showLastExpression = true;
-                    // keep leftUnaryActive so appendNumber can use it when user types the right operand
                 } else {
                     this.previousOperand = this.currentOperand;
                 }
@@ -312,8 +413,6 @@
             }
 
             calculate() {
-                // If there is no binary operation (user pressed '=' after a unary op),
-                // commit the pending unary history if present.
                 if (!this.operation && this.pendingHistory) {
                     this.history.unshift(this.pendingHistory);
                     if (this.history.length > 10) this.history = this.history.slice(0, 10);
@@ -363,8 +462,6 @@
                 }
 
                 // Lưu vào lịch sử
-                // Prefer the formatted lastExpression (which may include sqr(...) or √(...))
-                // when it was set by a unary operation used inside a binary expression.
                 let expressionText;
                 if (this.showLastExpression && this.lastExpression && this.lastExpression.trim() !== '') {
                     // remove any trailing '=' for history storage
@@ -491,9 +588,6 @@
                     return;
                 }
 
-                // Fallback: unary square with its own history entry (no pending binary op)
-                // If a previous unary expression is already shown (e.g. lastExpression == 'sqr(5)'),
-                // nest it: sqr(sqr(5)). Otherwise, use the raw operand.
                 let expr;
                 if (this.showLastExpression && this.lastExpression && this.lastExpression.trim() !== '') {
                     const inner = this.lastExpression.replace(/\s*=$/, '');
@@ -513,8 +607,6 @@
                     this.leftUnaryText = historyItem.expression;
                     this.leftUnaryActive = true;
                 }
-                // If this unary was applied to the first operand (no previous binary op),
-                // remember the left unary text so future operations show e.g. "sqr(5) + 3 ="
                 if (this.previousOperand === '' && !this.operation) {
                     this.leftUnaryText = historyItem.expression;
                     this.leftUnaryActive = true;
@@ -549,8 +641,6 @@
                 }
                 const result = Math.sqrt(num);
 
-                // If there's a pending binary operation, show previous + √(current) and
-                // set current operand to the sqrt result so '=' will compute the full expression.
                 if (this.previousOperand !== '' && this.operation != null && !this.loadedFromHistory) {
                     this.lastExpression = `${this.previousOperand} ${this.operation} √(${original})`;
                     this.showLastExpression = true;
@@ -562,9 +652,6 @@
                     return;
                 }
 
-                // Fallback: unary sqrt with its own history entry
-                // If a previous unary expression is already shown (e.g. lastExpression == '√(5)'),
-                // nest it: √(√(5)). Otherwise, use the raw operand.
                 let expr;
                 if (this.showLastExpression && this.lastExpression && this.lastExpression.trim() !== '') {
                     const inner = this.lastExpression.replace(/\s*=$/, '');
@@ -638,13 +725,101 @@
                 this.renderHistory();
             }
 
+            // Memory list rendering and management (separate from single memoryValue)
+            renderMemory() {
+                if (!this.panelContent) return;
+                if (!this.memoryList || this.memoryList.length === 0) {
+                    this.panelContent.innerHTML = '<div class="no-history">Chưa có mục nào</div>';
+                    return;
+                }
+                this.panelContent.innerHTML = this.memoryList.map((item, index) => `
+                    <div class="history-item memory-item" data-index="${index}">
+                        <div class="history-expression">${item.label || 'Memory'} =</div>
+                        <div class="history-result">${item.value}</div>
+                    </div>
+                `).join('');
+
+                this.panelContent.querySelectorAll('.memory-item').forEach(item => {
+                    item.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const index = parseInt(item.dataset.index);
+                        const m = this.memoryList[index];
+                        if (!m) return;
+                        this.currentOperand = m.value;
+                        this.loadedFromHistory = false;
+                        this.justCalculated = false;
+                        this.updateDisplay();
+                    });
+                });
+            }
+
+            renderPanel() {
+                if (!this.panelContent) return;
+                if (this.activePanel === 'history') {
+                    // render history inside panel
+                    if (this.history.length === 0) {
+                        this.panelContent.innerHTML = '<div class="no-history">Chưa có phép tính nào</div>';
+                    } else {
+                        this.panelContent.innerHTML = this.history.map((item, index) => `
+                            <div class="history-item" data-index="${index}">
+                                <div class="history-expression">${item.expression} =</div>
+                                <div class="history-result">${item.result}</div>
+                            </div>
+                        `).join('');
+                        // attach clicks
+                        this.panelContent.querySelectorAll('.history-item').forEach(item => {
+                            item.addEventListener('click', (e) => {
+                                e.stopPropagation();
+                                const index = parseInt(item.dataset.index);
+                                const historyItem = this.history[index];
+                                this.lastExpression = (historyItem.expression ? `${historyItem.expression} =` : '');
+                                this.previousOperand = '';
+                                this.operation = undefined;
+                                this.showLastExpression = true;
+                                this.currentOperand = historyItem.result;
+                                this.justCalculated = false;
+                                this.loadedFromHistory = true;
+                                this.pendingHistory = null;
+                                this.updateDisplay();
+                            });
+                        });
+                    }
+                } else {
+                    this.renderMemory();
+                }
+                // update tab styles
+                if (this.historyTab) this.historyTab.style.opacity = this.activePanel === 'history' ? '1' : '0.6';
+                if (this.memoryTab) this.memoryTab.style.opacity = this.activePanel === 'memory' ? '1' : '0.6';
+            }
+
+            addMemoryToList(label, value) {
+                this.memoryList.unshift({ label: label || 'Memory', value: value.toString() });
+                if (this.memoryList.length > 20) this.memoryList = this.memoryList.slice(0, 20);
+                localStorage.setItem('calculatorMemoryList', JSON.stringify(this.memoryList));
+                this.renderPanel();
+            }
+
+            clearActivePanel() {
+                if (this.activePanel === 'history') {
+                    this.clearHistory();
+                } else {
+                    this.memoryList = [];
+                    localStorage.removeItem('calculatorMemoryList');
+                    this.renderPanel();
+                }
+            }
+
             renderHistory() {
+                // Ensure we have a valid DOM container to render history into.
+                const target = this.historyContent || this.panelContent;
+                if (!target) return; // nothing to render into yet
+
                 if (this.history.length === 0) {
-                    this.historyContent.innerHTML = '<div class="no-history">Chưa có phép tính nào</div>';
+                    target.innerHTML = '<div class="no-history">Chưa có phép tính nào</div>';
                     return;
                 }
 
-                this.historyContent.innerHTML = this.history.map((item, index) => `
+                target.innerHTML = this.history.map((item, index) => `
                         <div class="history-item" data-index="${index}">
                             <div class="history-expression">${item.expression} =</div>
                             <div class="history-result">${item.result}</div>
@@ -652,15 +827,12 @@
                     `).join('');
 
                 // Thêm sự kiện click cho các mục lịch sử
-                this.historyContent.querySelectorAll('.history-item').forEach(item => {
+                target.querySelectorAll('.history-item').forEach(item => {
                     item.addEventListener('click', (e) => {
                         // prevent the click from bubbling to document (which might close the panel)
                         e.stopPropagation();
                         const index = parseInt(item.dataset.index);
                         const historyItem = this.history[index];
-                        // load result into current operand without altering the history item's text
-                        // Show saved expression on the previous line (e.g. "5 + 3")
-                        // include '=' when showing a clicked history expression
                         this.lastExpression = (historyItem.expression ? `${historyItem.expression} =` : '');
                         // clear any stale previousOperand/operation so new operator applies to the shown result
                         this.previousOperand = '';
@@ -777,6 +949,16 @@
                             calculator.delete();
                         } else if (button.dataset.action === 'percent') {
                             calculator.calculatePercentage();
+                        } else if (button.dataset.action === 'memory-clear') {
+                            calculator.memoryClear();
+                        } else if (button.dataset.action === 'memory-recall') {
+                            calculator.memoryRecall();
+                        } else if (button.dataset.action === 'memory-store') {
+                            calculator.memoryStore();
+                        } else if (button.dataset.action === 'memory-add') {
+                            calculator.memoryAdd();
+                        } else if (button.dataset.action === 'memory-subtract') {
+                            calculator.memorySubtract();
                         } else if (button.dataset.action === 'toggle-sign') {
                             calculator.toggleSign();
                         }
@@ -817,21 +999,24 @@
         });
 
         // Xử lý hiển thị/ẩn lịch sử
-        const historyToggle = document.getElementById('historyToggle');
-        const historyPanel = document.getElementById('historyPanel');
-        const clearHistoryBtn = document.getElementById('clearHistory');
+    const historyToggle = document.getElementById('historyToggle');
+    const historyPanel = document.getElementById('historyPanel');
+    // the clear button in the markup is `clearPanel` (not clearHistory)
+    const clearHistoryBtn = document.getElementById('clearPanel');
 
         function closeHistory() {
+            if (!historyPanel || !historyToggle) return;
             historyPanel.classList.remove('open');
             historyToggle.classList.remove('active');
         }
 
         function openHistory() {
+            if (!historyPanel || !historyToggle) return;
             historyPanel.classList.add('open');
             historyToggle.classList.add('active');
         }
 
-        historyToggle.addEventListener('click', (e) => {
+        if (historyToggle) historyToggle.addEventListener('click', (e) => {
             // Prevent the document click handler from immediately closing the panel
             e.stopPropagation();
             e.preventDefault();
@@ -844,17 +1029,19 @@
             }
         });
 
-        clearHistoryBtn.addEventListener('click', () => {
-            calculator.clearHistory();
-        });
+        if (clearHistoryBtn) {
+            clearHistoryBtn.addEventListener('click', () => {
+                calculator.clearHistory();
+            });
+        }
 
         // Close history when clicking outside on small screens
         document.addEventListener('click', (e) => {
             if (!window.matchMedia) return;
             if (window.matchMedia('(max-width: 899px)').matches) {
-                if (!historyPanel.classList.contains('open')) return;
+                if (!historyPanel || !historyPanel.classList.contains('open')) return;
                 // don't close when clicking inside the panel or on the toggle
-                const isClickInside = historyPanel.contains(e.target) || historyToggle.contains(e.target);
+                const isClickInside = historyPanel.contains(e.target) || (historyToggle && historyToggle.contains(e.target));
                 if (!isClickInside) closeHistory();
             }
         });
