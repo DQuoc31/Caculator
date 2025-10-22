@@ -90,6 +90,9 @@
                 this.lastExpression = '';
                 this.loadedFromHistory = false;
                 this.showLastExpression = false;
+                this.pendingHistory = null; // store unary result until user confirms with '='
+                this.leftUnaryText = '';
+                this.leftUnaryActive = false;
                 this.updateDisplay();
                 this.renderHistory();
             }
@@ -103,6 +106,9 @@
                 this.lastExpression = '';
                 this.loadedFromHistory = false;
                 this.showLastExpression = false;
+                this.pendingHistory = null;
+                this.leftUnaryText = '';
+                this.leftUnaryActive = false;
             }
 
             clearEntry() {
@@ -140,6 +146,7 @@
                     // do not show the saved full expression once user starts typing after operator
                     this.showLastExpression = false;
                     this.waitingForNewOperand = false;
+                    this.pendingHistory = null;
                     this.updateDisplay();
                     return;
                 }
@@ -155,11 +162,31 @@
                 }
 
                 if (this.showLastExpression && this.previousOperand !== '' && this.operation != null) {
-                    // clear preview
+                    // If this showLastExpression is from a left-side unary (e.g. 'sqr(5) +'),
+                    // append the typed number to the right-hand side in the visual expression.
+                    if (this.leftUnaryActive && this.leftUnaryText && this.lastExpression.startsWith(this.leftUnaryText)) {
+                        // start new current operand based on input (handle decimal)
+                        if (number === '.') {
+                            this.currentOperand = '0.';
+                        } else {
+                            this.currentOperand = number;
+                        }
+                        // update the displayed previous expression to include the right-hand operand
+                        this.lastExpression = `${this.leftUnaryText} ${this.operation} ${this.currentOperand}`;
+                        this.showLastExpression = true;
+                        this.loadedFromHistory = false;
+                        this.justCalculated = false;
+                        this.pendingHistory = null;
+                        this.waitingForNewOperand = false;
+                        return;
+                    }
+
+                    // default behavior: clear preview and start new number
                     this.lastExpression = '';
                     this.showLastExpression = false;
                     this.loadedFromHistory = false;
                     this.justCalculated = false;
+                    this.pendingHistory = null;
                     // start new current operand based on input (handle decimal)
                     if (number === '.') {
                         this.currentOperand = '0.';
@@ -194,12 +221,64 @@
                     return;
                 }
 
-                this.showLastExpression = false;
-                this.loadedFromHistory = false;
-                this.lastExpression = '';
-
                 //Thay đổi phép toán
                 if (this.operation != null && this.waitingForNewOperand) {
+                    // If a unary-preview (like sqr(...) or √(...)) is shown for the current operand
+                    // as part of a pending binary expression, and the user switches operators,
+                    // compute the pending binary result now (without adding a history entry)
+                    // and use that as the new previousOperand so the display becomes e.g. "300 -".
+                    if (this.showLastExpression && this.previousOperand !== '' && this.currentOperand !== '') {
+                        const prevNum = parseFloat(this.previousOperand);
+                        const curNum = parseFloat(this.currentOperand);
+                        if (!isNaN(prevNum) && !isNaN(curNum)) {
+                            let interim;
+                            switch (this.operation) {
+                                case '+': interim = prevNum + curNum; break;
+                                case '-': interim = prevNum - curNum; break;
+                                case '×': interim = prevNum * curNum; break;
+                                case '÷':
+                                    if (curNum === 0) {
+                                        this.lastExpression = `${this.previousOperand} ÷ ${this.currentOperand}`;
+                                        this.showLastExpression = false;
+                                        this.currentOperand = 'Không thể chia cho 0';
+                                        this.justCalculated = true;
+                                        this.updateDisplay();
+                                        return;
+                                    }
+                                    interim = prevNum / curNum; break;
+                                default:
+                                    interim = prevNum;
+                            }
+                            // Set the computed value as the previous operand and update operator
+                            // Commit the textual expression (if present) to history before moving on.
+                            if (this.lastExpression && this.lastExpression.trim() !== '') {
+                                const exprText = this.lastExpression.replace(/\s*=$/, '');
+                                const historyItem = { expression: exprText, result: interim.toString() };
+                                this.history.unshift(historyItem);
+                                if (this.history.length > 10) this.history = this.history.slice(0, 10);
+                                localStorage.setItem('calculatorHistory', JSON.stringify(this.history));
+                                this.renderHistory();
+                            }
+
+                            // Set the computed value as the previous operand and update operator
+                            this.previousOperand = interim.toString();
+                            this.operation = operation;
+                            // clear any unary-preview and pending unary state
+                            this.lastExpression = '';
+                            this.showLastExpression = false;
+                            this.pendingHistory = null;
+                            this.leftUnaryText = '';
+                            this.leftUnaryActive = false;
+                            this.currentOperand = interim.toString();
+                            this.waitingForNewOperand = true;
+                            this.justCalculated = false;
+                            this.loadedFromHistory = false;
+                            this.updateDisplay();
+                            return;
+                        }
+                    }
+
+                    // default: just change the pending operator
                     this.operation = operation;
                     this.updateDisplay();
                     return;
@@ -210,14 +289,47 @@
                     this.calculate();
                 }
 
+                // Clear preview/loaded flags now that we're moving to a new operator flow
+                this.showLastExpression = false;
+                this.loadedFromHistory = false;
+                this.lastExpression = '';
+
                 // Set up new operation
                 this.justCalculated = false;
                 this.operation = operation;
-                this.previousOperand = this.currentOperand;
+                // If the left side was a unary expression (e.g. sqr(5)), keep its text form
+                // in the previous line while storing the numeric value as previousOperand.
+                if (this.leftUnaryActive && this.leftUnaryText) {
+                    this.previousOperand = this.currentOperand; // numeric value
+                    // show textual unary on the previous line with new operator (e.g. 'sqr(5) +')
+                    this.lastExpression = `${this.leftUnaryText} ${operation}`;
+                    this.showLastExpression = true;
+                    // keep leftUnaryActive so appendNumber can use it when user types the right operand
+                } else {
+                    this.previousOperand = this.currentOperand;
+                }
                 this.waitingForNewOperand = true;
             }
 
             calculate() {
+                // If there is no binary operation (user pressed '=' after a unary op),
+                // commit the pending unary history if present.
+                if (!this.operation && this.pendingHistory) {
+                    this.history.unshift(this.pendingHistory);
+                    if (this.history.length > 10) this.history = this.history.slice(0, 10);
+                    localStorage.setItem('calculatorHistory', JSON.stringify(this.history));
+                    this.renderHistory();
+                    // clear pending after committing
+                    this.pendingHistory = null;
+                    // keep lastExpression/currentOperand already set by the unary op
+                    this.justCalculated = true;
+                    // clear any left-unary tracking because it's now stored
+                    this.leftUnaryText = '';
+                    this.leftUnaryActive = false;
+                    this.updateDisplay();
+                    return;
+                }
+
                 let computation;
                 const prev = parseFloat(this.previousOperand);
                 const current = parseFloat(this.currentOperand);
@@ -281,6 +393,9 @@
                 // mark that a full calculation just finished
                 this.justCalculated = true;
                 this.showLastExpression = false;
+                // clear left-unary tracking since a full calc finished
+                this.leftUnaryText = '';
+                this.leftUnaryActive = false;
             }
 
             toggleSign() {
@@ -339,7 +454,8 @@
                     result: result.toString()
                 };
 
-                this.history.unshift(historyItem);
+                // Store pending unary history; only commit when user presses '='
+                this.pendingHistory = historyItem;
                 if (this.history.length > 10) {
                     this.history = this.history.slice(0, 10);
                 }
@@ -362,11 +478,7 @@
                 if (isNaN(num)) return;
                 const result = num * num;
 
-                // If there's a pending binary operation (e.g. previousOperand = 200, operation = '+')
-                // then show the full expression like: "200 + sqr(8)" on the previous line and
-                // set the current operand to the squared value so the user can press '=' to compute
-                // 200 + 64. In this case we do NOT write a history entry yet because the full
-                // binary calculation hasn't been completed.
+
                 if (this.previousOperand !== '' && this.operation != null && !this.loadedFromHistory) {
                     this.lastExpression = `${this.previousOperand} ${this.operation} sqr(${original})`;
                     this.showLastExpression = true;
@@ -380,12 +492,33 @@
                 }
 
                 // Fallback: unary square with its own history entry (no pending binary op)
+                // If a previous unary expression is already shown (e.g. lastExpression == 'sqr(5)'),
+                // nest it: sqr(sqr(5)). Otherwise, use the raw operand.
+                let expr;
+                if (this.showLastExpression && this.lastExpression && this.lastExpression.trim() !== '') {
+                    const inner = this.lastExpression.replace(/\s*=$/, '');
+                    expr = `sqr(${inner})`;
+                } else {
+                    expr = `sqr(${original})`;
+                }
+
                 const historyItem = {
-                    expression: `sqr(${original})`,
+                    expression: expr,
                     result: result.toString()
                 };
 
-                this.history.unshift(historyItem);
+                // Store pending unary history; commit when user presses '='
+                this.pendingHistory = historyItem;
+                if (this.previousOperand === '' && !this.operation) {
+                    this.leftUnaryText = historyItem.expression;
+                    this.leftUnaryActive = true;
+                }
+                // If this unary was applied to the first operand (no previous binary op),
+                // remember the left unary text so future operations show e.g. "sqr(5) + 3 ="
+                if (this.previousOperand === '' && !this.operation) {
+                    this.leftUnaryText = historyItem.expression;
+                    this.leftUnaryActive = true;
+                }
                 if (this.history.length > 10) {
                     this.history = this.history.slice(0, 10);
                 }
@@ -430,12 +563,23 @@
                 }
 
                 // Fallback: unary sqrt with its own history entry
+                // If a previous unary expression is already shown (e.g. lastExpression == '√(5)'),
+                // nest it: √(√(5)). Otherwise, use the raw operand.
+                let expr;
+                if (this.showLastExpression && this.lastExpression && this.lastExpression.trim() !== '') {
+                    const inner = this.lastExpression.replace(/\s*=$/, '');
+                    expr = `√(${inner})`;
+                } else {
+                    expr = `√(${original})`;
+                }
+
                 const historyItem = {
-                    expression: `√(${original})`,
+                    expression: expr,
                     result: result.toString()
                 };
 
-                this.history.unshift(historyItem);
+                // Store pending unary history; commit when user presses '='
+                this.pendingHistory = historyItem;
                 if (this.history.length > 10) {
                     this.history = this.history.slice(0, 10);
                 }
@@ -471,7 +615,8 @@
                     result: result.toString()
                 };
 
-                this.history.unshift(historyItem);
+                // Store pending unary history; commit when user presses '='
+                this.pendingHistory = historyItem;
                 if (this.history.length > 10) {
                     this.history = this.history.slice(0, 10);
                 }
@@ -526,6 +671,7 @@
                         this.justCalculated = false;
                         // mark that a history item was loaded; next number press should start new current operand
                         this.loadedFromHistory = true;
+                        this.pendingHistory = null;
                         this.updateDisplay();
 
                         // on small screens, close the history overlay after selection
