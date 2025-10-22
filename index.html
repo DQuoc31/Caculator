@@ -115,7 +115,7 @@
                 if (this.loadedFromHistory) {
                     return;
                 }
-                 // If the last action was a completed calculation, backspace should remove that calculation from history
+                // If the last action was a completed calculation, backspace should remove that calculation from history
                 if (this.justCalculated) {
                     // clear the result and previous expression
                     this.currentOperand = '0';
@@ -124,7 +124,7 @@
                     this.justCalculated = false;
                     return;
                 }
- 
+
                 if (this.currentOperand.length === 1) {
                     this.currentOperand = '0';
                 } else {
@@ -133,22 +133,39 @@
             }
 
             appendNumber(number = '') {
-                 // If user just loaded a history item, start a new current operand but keep previousOperand and operation
-                 if (this.loadedFromHistory) {
-                     this.currentOperand = number;
-                     this.loadedFromHistory = false;
-                     // do not show the saved full expression once user starts typing after operator
-                     this.showLastExpression = false;
-                     this.waitingForNewOperand = false;
-                     return;
-                 }
-                // If the last action was a completed calculation, start a new entry when a number is pressed
+                // If user just loaded a history item, start a new current operand but keep previousOperand and operation
+                if (this.loadedFromHistory) {
+                    this.currentOperand = number;
+                    this.loadedFromHistory = false;
+                    // do not show the saved full expression once user starts typing after operator
+                    this.showLastExpression = false;
+                    this.waitingForNewOperand = false;
+                    this.updateDisplay();
+                    return;
+                }
+                // Nếu nhập số sau khi vừa tính toán xong, tạo phép tính mới
                 if (this.justCalculated) {
                     // clear previous expression when starting a fresh input
                     this.previousOperand = '';
                     this.lastExpression = '';
                     this.currentOperand = number;
                     this.justCalculated = false;
+                    this.waitingForNewOperand = false;
+                    return;
+                }
+
+                if (this.showLastExpression && this.previousOperand !== '' && this.operation != null) {
+                    // clear preview
+                    this.lastExpression = '';
+                    this.showLastExpression = false;
+                    this.loadedFromHistory = false;
+                    this.justCalculated = false;
+                    // start new current operand based on input (handle decimal)
+                    if (number === '.') {
+                        this.currentOperand = '0.';
+                    } else {
+                        this.currentOperand = number;
+                    }
                     this.waitingForNewOperand = false;
                     return;
                 }
@@ -167,43 +184,38 @@
             }
 
             chooseOperation(operation) {
-                 // If there is no current input, ignore
-                 if (this.currentOperand === '') return;
- 
+                // If there is no current input, ignore
+                if (this.currentOperand === '') return;
+
                 // Prevent choosing an operator when currentOperand is a non-numeric warning/error message
-                // e.g. after errors like 'Không thể chia cho 0'
                 const curClean = (this.currentOperand || '').toString().replace(/,/g, '');
                 const curNum = parseFloat(curClean);
                 if (isNaN(curNum)) {
                     return;
                 }
 
-                 // when user picks an operator, stop showing the saved history expression
-                 this.showLastExpression = false;
-                 // if a history item was loaded, consume it: operator should apply to the displayed result, not to the saved expression
-                 this.loadedFromHistory = false;
-                 // clear the saved expression so UI won't fall back to showing it
-                 this.lastExpression = '';
- 
-                 // If an operator is already selected and the user hasn't typed a new operand yet,
-                 // just update to the new operator (don't calculate)
-                 if (this.operation != null && this.waitingForNewOperand) {
-                     this.operation = operation;
-                     this.updateDisplay();
-                     return;
-                 }
- 
-                 // If there's a previous operand and the user has entered a new current operand, perform the pending calculation
-                 if (this.previousOperand !== '' && !this.waitingForNewOperand) {
-                     this.calculate();
-                 }
- 
-                 // Set up new operation
-                 this.justCalculated = false;
-                 this.operation = operation;
-                 this.previousOperand = this.currentOperand;
-                 this.waitingForNewOperand = true;
-             }
+                this.showLastExpression = false;
+                this.loadedFromHistory = false;
+                this.lastExpression = '';
+
+                //Thay đổi phép toán
+                if (this.operation != null && this.waitingForNewOperand) {
+                    this.operation = operation;
+                    this.updateDisplay();
+                    return;
+                }
+
+                // Thực hiện phép toán trước đó nếu có
+                if (this.previousOperand !== '' && !this.waitingForNewOperand) {
+                    this.calculate();
+                }
+
+                // Set up new operation
+                this.justCalculated = false;
+                this.operation = operation;
+                this.previousOperand = this.currentOperand;
+                this.waitingForNewOperand = true;
+            }
 
             calculate() {
                 let computation;
@@ -224,7 +236,7 @@
                         break;
                     case '÷':
                         if (current === 0) {
-                            // show error on display instead of alert
+                            // show error on display
                             this.lastExpression = `${this.previousOperand} ÷ ${this.currentOperand}`;
                             this.showLastExpression = false;
                             this.currentOperand = 'Không thể chia cho 0';
@@ -239,8 +251,18 @@
                 }
 
                 // Lưu vào lịch sử
+                // Prefer the formatted lastExpression (which may include sqr(...) or √(...))
+                // when it was set by a unary operation used inside a binary expression.
+                let expressionText;
+                if (this.showLastExpression && this.lastExpression && this.lastExpression.trim() !== '') {
+                    // remove any trailing '=' for history storage
+                    expressionText = this.lastExpression.replace(/\s*=$/, '');
+                } else {
+                    expressionText = `${this.previousOperand} ${operationSymbol} ${this.currentOperand}`;
+                }
+
                 const historyItem = {
-                    expression: `${this.previousOperand} ${operationSymbol} ${this.currentOperand}`,
+                    expression: expressionText,
                     result: computation.toString()
                 };
 
@@ -252,8 +274,7 @@
                 localStorage.setItem('calculatorHistory', JSON.stringify(this.history));
                 this.renderHistory();
 
-                // keep the full expression visible above the result to avoid layout jump
-                this.lastExpression = `${this.previousOperand} ${operationSymbol} ${this.currentOperand}`;
+                this.lastExpression = expressionText;
                 this.currentOperand = computation.toString();
                 this.operation = undefined;
                 this.waitingForNewOperand = true;
@@ -269,24 +290,24 @@
             }
 
             calculatePercentage() {
-                 // Debug: log state to console
-                 try {
-                     console.log('calculatePercentage called', {
-                         previousOperand: this.previousOperand,
-                         operation: this.operation,
-                         currentOperand: this.currentOperand,
-                         showLastExpression: this.showLastExpression,
-                         loadedFromHistory: this.loadedFromHistory,
-                         justCalculated: this.justCalculated
-                     });
-                 } catch (e) {}
- 
-                 // robust parsing: strip grouping commas before parse
-                 const curStr = (this.currentOperand || '').toString().replace(/,/g, '');
-                 const num = parseFloat(curStr);
-                 if (isNaN(num)) return;
- 
-                 // If there's a pending binary operation, treat current as percentage of previousOperand
+                // Debug: log state to console
+                try {
+                    console.log('calculatePercentage called', {
+                        previousOperand: this.previousOperand,
+                        operation: this.operation,
+                        currentOperand: this.currentOperand,
+                        showLastExpression: this.showLastExpression,
+                        loadedFromHistory: this.loadedFromHistory,
+                        justCalculated: this.justCalculated
+                    });
+                } catch (e) { }
+
+                // robust parsing: strip grouping commas before parse
+                const curStr = (this.currentOperand || '').toString().replace(/,/g, '');
+                const num = parseFloat(curStr);
+                if (isNaN(num)) return;
+
+                // If there's a pending binary operation, treat current as percentage of previousOperand
                 if (this.previousOperand !== '' && this.operation != null) {
                     const prevStr = (this.previousOperand || '').toString().replace(/,/g, '');
                     const base = parseFloat(prevStr);
@@ -308,7 +329,7 @@
                         return;
                     }
                 }
- 
+
                 // fallback: treat as unary percent
                 const result = num / 100;
 
@@ -332,17 +353,35 @@
                 this.justCalculated = true;
                 this.loadedFromHistory = false;
                 this.updateDisplay();
-             }
+            }
 
             calculateSquare() {
                 // allow squaring any numeric currentOperand (including 0)
-                const num = parseFloat(this.currentOperand);
+                const original = this.currentOperand;
+                const num = parseFloat(original);
                 if (isNaN(num)) return;
                 const result = num * num;
 
-                // Lưu vào lịch sử
+                // If there's a pending binary operation (e.g. previousOperand = 200, operation = '+')
+                // then show the full expression like: "200 + sqr(8)" on the previous line and
+                // set the current operand to the squared value so the user can press '=' to compute
+                // 200 + 64. In this case we do NOT write a history entry yet because the full
+                // binary calculation hasn't been completed.
+                if (this.previousOperand !== '' && this.operation != null && !this.loadedFromHistory) {
+                    this.lastExpression = `${this.previousOperand} ${this.operation} sqr(${original})`;
+                    this.showLastExpression = true;
+                    this.currentOperand = result.toString();
+                    // mark that next number press should start a new operand
+                    this.waitingForNewOperand = true;
+                    this.justCalculated = false;
+                    this.loadedFromHistory = false;
+                    this.updateDisplay();
+                    return;
+                }
+
+                // Fallback: unary square with its own history entry (no pending binary op)
                 const historyItem = {
-                    expression: `sqr(${this.currentOperand})`,
+                    expression: `sqr(${original})`,
                     result: result.toString()
                 };
 
@@ -354,7 +393,6 @@
                 localStorage.setItem('calculatorHistory', JSON.stringify(this.history));
                 this.renderHistory();
 
-                // show the square expression as `sqr(n)` above the result
                 this.lastExpression = historyItem.expression;
                 this.showLastExpression = true;
                 this.currentOperand = result.toString();
@@ -364,11 +402,12 @@
             }
 
             calculateSquareRoot() {
-                const num = parseFloat(this.currentOperand);
+                const original = this.currentOperand;
+                const num = parseFloat(original);
                 if (isNaN(num)) return;
                 if (num < 0) {
-                    // show error on display instead of alert
-                    this.lastExpression = `√(${this.currentOperand})`;
+                    // show error on display
+                    this.lastExpression = `√(${original})`;
                     this.showLastExpression = false;
                     this.currentOperand = 'Không thể căn bậc hai số âm';
                     this.justCalculated = true;
@@ -377,9 +416,22 @@
                 }
                 const result = Math.sqrt(num);
 
-                // Lưu vào lịch sử
+                // If there's a pending binary operation, show previous + √(current) and
+                // set current operand to the sqrt result so '=' will compute the full expression.
+                if (this.previousOperand !== '' && this.operation != null && !this.loadedFromHistory) {
+                    this.lastExpression = `${this.previousOperand} ${this.operation} √(${original})`;
+                    this.showLastExpression = true;
+                    this.currentOperand = result.toString();
+                    this.waitingForNewOperand = true;
+                    this.justCalculated = false;
+                    this.loadedFromHistory = false;
+                    this.updateDisplay();
+                    return;
+                }
+
+                // Fallback: unary sqrt with its own history entry
                 const historyItem = {
-                    expression: `√(${this.currentOperand})`,
+                    expression: `√(${original})`,
                     result: result.toString()
                 };
 
@@ -391,20 +443,19 @@
                 localStorage.setItem('calculatorHistory', JSON.stringify(this.history));
                 this.renderHistory();
 
-                // show sqrt expression above result
                 this.lastExpression = historyItem.expression;
                 this.showLastExpression = true;
                 this.currentOperand = result.toString();
                 this.justCalculated = true;
                 this.loadedFromHistory = false;
                 this.updateDisplay();
-             }
+            }
 
             calculateReciprocal() {
                 const num = parseFloat(this.currentOperand);
                 if (isNaN(num)) return;
                 if (num === 0) {
-                    // show error on display instead of alert
+                    // show error on display
                     this.lastExpression = `1/(${this.currentOperand})`;
                     this.showLastExpression = false;
                     this.currentOperand = 'Không thể lấy nghịch đảo 0';
@@ -428,14 +479,13 @@
                 localStorage.setItem('calculatorHistory', JSON.stringify(this.history));
                 this.renderHistory();
 
-                // show reciprocal expression above result
                 this.lastExpression = historyItem.expression;
                 this.showLastExpression = true;
                 this.currentOperand = result.toString();
                 this.justCalculated = true;
                 this.loadedFromHistory = false;
                 this.updateDisplay();
-             }
+            }
 
             clearHistory() {
                 this.history = [];
@@ -444,50 +494,50 @@
             }
 
             renderHistory() {
-                 if (this.history.length === 0) {
-                     this.historyContent.innerHTML = '<div class="no-history">Chưa có phép tính nào</div>';
-                     return;
-                 }
- 
+                if (this.history.length === 0) {
+                    this.historyContent.innerHTML = '<div class="no-history">Chưa có phép tính nào</div>';
+                    return;
+                }
+
                 this.historyContent.innerHTML = this.history.map((item, index) => `
-                    <div class="history-item" data-index="${index}">
-                        <div class="history-expression">${item.expression} =</div>
-                        <div class="history-result">${item.result}</div>
-                    </div>
-                `).join('');
- 
-                 // Thêm sự kiện click cho các mục lịch sử
-                 this.historyContent.querySelectorAll('.history-item').forEach(item => {
-                     item.addEventListener('click', (e) => {
-                     // prevent the click from bubbling to document (which might close the panel)
-                     e.stopPropagation();
-                     const index = parseInt(item.dataset.index);
-                     const historyItem = this.history[index];
-                     // load result into current operand without altering the history item's text
+                        <div class="history-item" data-index="${index}">
+                            <div class="history-expression">${item.expression} =</div>
+                            <div class="history-result">${item.result}</div>
+                        </div>
+                    `).join('');
+
+                // Thêm sự kiện click cho các mục lịch sử
+                this.historyContent.querySelectorAll('.history-item').forEach(item => {
+                    item.addEventListener('click', (e) => {
+                        // prevent the click from bubbling to document (which might close the panel)
+                        e.stopPropagation();
+                        const index = parseInt(item.dataset.index);
+                        const historyItem = this.history[index];
+                        // load result into current operand without altering the history item's text
                         // Show saved expression on the previous line (e.g. "5 + 3")
                         // include '=' when showing a clicked history expression
                         this.lastExpression = (historyItem.expression ? `${historyItem.expression} =` : '');
-                         // clear any stale previousOperand/operation so new operator applies to the shown result
-                         this.previousOperand = '';
-                         this.operation = undefined;
-                         this.showLastExpression = true;
-                          // Show saved result as current operand (e.g. "8")
-                          this.currentOperand = historyItem.result;
-                          this.justCalculated = false;
-                          // mark that a history item was loaded; next number press should start new current operand
-                          this.loadedFromHistory = true;
-                          this.updateDisplay();
+                        // clear any stale previousOperand/operation so new operator applies to the shown result
+                        this.previousOperand = '';
+                        this.operation = undefined;
+                        this.showLastExpression = true;
+                        // Show saved result as current operand (e.g. "8")
+                        this.currentOperand = historyItem.result;
+                        this.justCalculated = false;
+                        // mark that a history item was loaded; next number press should start new current operand
+                        this.loadedFromHistory = true;
+                        this.updateDisplay();
 
-                         // on small screens, close the history overlay after selection
-                         try {
-                             if (window.matchMedia('(max-width: 899px)').matches && typeof closeHistory === 'function') {
-                                 closeHistory();
-                             }
-                         } catch (err) {
-                             // ignore
-                         }
-                     });
-                 });
+                        // on small screens, close the history overlay after selection
+                        try {
+                            if (window.matchMedia('(max-width: 899px)').matches && typeof closeHistory === 'function') {
+                                closeHistory();
+                            }
+                        } catch (err) {
+                            // ignore
+                        }
+                    });
+                });
             }
 
             getDisplayNumber(number) {
@@ -523,28 +573,27 @@
                     this.previousOperandElement.innerText = this.lastExpression;
                     return;
                 }
- 
-                 // Otherwise, if there's an active operation, show previous number plus operator
-                 if (this.operation != null && this.previousOperand !== '') {
-                     this.previousOperandElement.innerText = `${this.getDisplayNumber(this.previousOperand)} ${this.operation}`;
-                     return;
-                 }
- 
-                 // Fallback: show lastExpression if present
-                 if (this.lastExpression && this.lastExpression !== '') {
-                     // If the last action was a completed calculation, append '=' to indicate result
-                     if (this.justCalculated) {
+
+                // Otherwise, if there's an active operation, show previous number plus operator
+                if (this.operation != null && this.previousOperand !== '') {
+                    this.previousOperandElement.innerText = `${this.getDisplayNumber(this.previousOperand)} ${this.operation}`;
+                    return;
+                }
+
+                // Fallback: show lastExpression if present
+                if (this.lastExpression && this.lastExpression !== '') {
+                    // If the last action was a completed calculation, append '=' to indicate result
+                    if (this.justCalculated) {
                         this.previousOperandElement.innerText = `${this.lastExpression} =`;
-                     } else {
+                    } else {
                         this.previousOperandElement.innerText = this.lastExpression;
-                     }
-                 } else {
-                     this.previousOperandElement.innerText = '';
-                 }
-             }
+                    }
+                } else {
+                    this.previousOperandElement.innerText = '';
+                }
+            }
         }
 
-        // Khởi tạo máy tính
         const calculator = new Calculator();
 
         // Xử lý sự kiện click cho các nút
@@ -562,7 +611,6 @@
                         }
                     } else if (button.dataset.operation) {
                         const op = button.dataset.operation;
-                        // Handle unary operations directly so they don't act as binary operations
                         if (op === 'square') {
                             calculator.calculateSquare();
                         } else if (op === 'sqrt') {
@@ -587,7 +635,7 @@
                             calculator.toggleSign();
                         }
                     }
- 
+
                     calculator.updateDisplay();
                 } catch (err) {
                     console.error('Calculator button handler error', err);
